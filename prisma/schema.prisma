@@ -1,0 +1,356 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+enum UserRole {
+  CUSTOMER
+  STAFF
+  ADMIN
+}
+
+enum ShiftStatus {
+  AVAILABLE
+  BOOKED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum SubscriptionTier {
+  FREE
+  PREMIUM
+  VIP
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  CREATE
+  UPDATE
+  DELETE
+  VIEW
+  DOWNLOAD
+  EXPORT
+  MODIFY_USER
+}
+
+// User and Authentication
+model User {
+  id                    String     @id @default(cuid())
+  email                 String     @unique
+  name                  String
+  password              String
+  phone                 String?
+  role                  UserRole
+  profileImage          String?
+  isEmailVerified       Boolean    @default(false)
+  isPhoneVerified       Boolean    @default(false)
+  isActive              Boolean    @default(true)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  
+  // Relationships
+  customer              Customer?
+  staff                 Staff?
+  admin                 Admin?
+  auditLogs             AuditLog[]
+  
+  @@index([email])
+  @@index([role])
+}
+
+model Customer {
+  id                    String     @id @default(cuid())
+  userId                String     @unique
+  user                  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Profile
+  address               String?
+  city                  String?
+  state                 String?
+  zipCode               String?
+  emergencyContact      String?
+  emergencyPhone        String?
+  
+  // Subscription
+  subscriptionTier      SubscriptionTier @default(FREE)
+  subscriptionStartDate DateTime?
+  subscriptionEndDate   DateTime?
+  
+  // Metrics
+  totalSpent            Float      @default(0)
+  totalOrders           Int        @default(0)
+  averageRating         Float      @default(0)
+  
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  
+  // Relationships
+  shifts                ShiftBooking[]
+  payments              Payment[]
+  reviews               Review[]
+  subscriptions         PremiumSubscription[]
+  
+  @@index([subscriptionTier])
+}
+
+model Staff {
+  id                    String     @id @default(cuid())
+  userId                String     @unique
+  user                  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Profile
+  bio                   String?
+  specializations       String[]   @default([])
+  yearsOfExperience     Int?
+  hourlyRate            Float      @default(0)
+  certifications        String[]   @default([])
+  
+  // Verification
+  backgroundCheckPass   Boolean    @default(false)
+  backgroundCheckDate   DateTime?
+  
+  // Metrics
+  totalHoursWorked      Float      @default(0)
+  totalEarnings         Float      @default(0)
+  averageRating         Float      @default(0)
+  completedShifts       Int        @default(0)
+  cancelledShifts       Int        @default(0)
+  
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  
+  // Relationships
+  shifts                ShiftBooking[]
+  vacationTime          VacationTime?
+  reviews               Review[]
+  documents             Document[]
+  
+  @@index([backgroundCheckPass])
+  @@index([hourlyRate])
+}
+
+model Admin {
+  id                    String     @id @default(cuid())
+  userId                String     @unique
+  user                  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Permissions
+  canViewAllUsers       Boolean    @default(true)
+  canManageUsers        Boolean    @default(true)
+  canProcessPayments    Boolean    @default(true)
+  canViewReports        Boolean    @default(true)
+  canManageDisputes     Boolean    @default(true)
+  
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+}
+
+// Shifts
+model Shift {
+  id                    String     @id @default(cuid())
+  title                 String
+  description           String?
+  category              String     // e.g., "babysitting", "eldercare", "cleaning"
+  startTime             DateTime
+  endTime               DateTime
+  status                ShiftStatus @default(AVAILABLE)
+  
+  // Location
+  address               String
+  city                  String
+  state                 String
+  zipCode               String
+  
+  // Requirements
+  minRating             Float      @default(0)
+  requiredCertifications String[]  @default([])
+  
+  // Payment
+  baseRate              Float      @default(0)
+  
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  
+  // Relationships
+  bookings              ShiftBooking[]
+  
+  @@index([status])
+  @@index([startTime])
+  @@index([category])
+}
+
+model ShiftBooking {
+  id                    String     @id @default(cuid())
+  shiftId               String
+  shift                 Shift      @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  
+  customerId            String
+  customer              Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  
+  staffId               String
+  staff                 Staff      @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  
+  // Hours
+  hoursWorked           Float      @default(0)
+  actualStartTime       DateTime?
+  actualEndTime         DateTime?
+  
+  status                ShiftStatus @default(BOOKED)
+  notes                 String?
+  
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  completedAt           DateTime?
+  
+  // Relationships
+  payments              Payment[]
+  
+  @@unique([shiftId, staffId])
+  @@index([customerId])
+  @@index([staffId])
+  @@index([status])
+}
+
+// Payments
+model Payment {
+  id                    String     @id @default(cuid())
+  customerId            String
+  customer              Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  
+  shiftBookingId        String?
+  shiftBooking          ShiftBooking? @relation(fields: [shiftBookingId], references: [id], onDelete: SetNull)
+  
+  amount                Float
+  currency              String     @default("USD")
+  status                PaymentStatus @default(PENDING)
+  paymentMethod         String?    // "credit_card", "stripe", etc.
+  stripePaymentIntentId String?
+  
+  description           String?
+  
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  completedAt           DateTime?
+  
+  @@index([customerId])
+  @@index([status])
+  @@index([stripePaymentIntentId])
+}
+
+// Subscriptions
+model PremiumSubscription {
+  id                    String     @id @default(cuid())
+  customerId            String
+  customer              Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  
+  tier                  SubscriptionTier @default(PREMIUM)
+  monthlyPrice          Float
+  stripeSubscriptionId  String?
+  
+  isActive              Boolean    @default(true)
+  startDate             DateTime   @default(now())
+  endDate               DateTime?
+  renewalDate           DateTime?
+  
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  
+  @@unique([customerId])
+  @@index([isActive])
+}
+
+// Vacation Time
+model VacationTime {
+  id                    String     @id @default(cuid())
+  staffId               String     @unique
+  staff                 Staff      @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  
+  totalAccrued          Float      @default(0)
+  totalUsed             Float      @default(0)
+  available             Float      @default(0)
+  
+  // Auto-calculation: 1 hour vacation for every 12 hours worked
+  lastCalculatedHours   Float      @default(0)
+  
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  
+  @@index([staffId])
+}
+
+// Reviews
+model Review {
+  id                    String     @id @default(cuid())
+  customerId            String
+  customer              Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  
+  staffId               String
+  staff                 Staff      @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  
+  rating                Int        // 1-5
+  comment               String?
+  
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  
+  @@unique([customerId, staffId])
+  @@index([staffId])
+  @@index([rating])
+}
+
+// Documents
+model Document {
+  id                    String     @id @default(cuid())
+  staffId               String
+  staff                 Staff      @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  
+  type                  String     // "certification", "background_check", etc.
+  fileName              String
+  fileUrl               String     // S3 URL
+  uploadedAt            DateTime   @default(now())
+  expiresAt             DateTime?
+  
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  
+  @@index([staffId])
+  @@index([type])
+}
+
+// Audit Log
+model AuditLog {
+  id                    String     @id @default(cuid())
+  userId                String
+  user                  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  action                AuditAction
+  resourceType          String     // "user", "payment", "shift", etc.
+  resourceId            String?
+  changes               Json?      // Store before/after values
+  ipAddress             String?
+  userAgent             String?
+  
+  createdAt             DateTime   @default(now())
+  
+  @@index([userId])
+  @@index([action])
+  @@index([resourceType])
+  @@index([createdAt])
+}

@@ -160,7 +160,7 @@ export function buildQueryString(params: Record<string, any>): string {
 
 // Merge objects deeply
 export function mergeObjects<T extends Record<string, any>>(target: T, source: Partial<T>): T {
-  const result = { ...target }
+  const result = { ...target } as any
   for (const key in source) {
     if (source.hasOwnProperty(key)) {
       if (typeof source[key] === "object" && source[key] !== null) {
